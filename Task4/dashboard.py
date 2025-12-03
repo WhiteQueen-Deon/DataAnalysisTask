@@ -1,4 +1,7 @@
 import streamlit as st
+import os
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 st.set_page_config(
     page_title="Data Analysis Dashboard",
@@ -77,7 +80,7 @@ with tab1:
     # Task 6: Chart
     st.subheader("📈 Task 6: Daily Revenue Over Time")
     try:
-        st.image("daily_revenue_DATA1.png")
+        st.image(os.path.join(BASE_DIR, "daily_revenue_DATA1.png"))
     except:
         st.error("⚠️ Chart not found. Please ensure 'daily_revenue_DATA1.png' is in the same directory.")
 
@@ -146,7 +149,7 @@ with tab2:
     # Task 6: Chart
     st.subheader("📈 Task 6: Daily Revenue Over Time")
     try:
-        st.image("daily_revenue_DATA2.png")
+        st.image(os.path.join(BASE_DIR, "daily_revenue_DATA2.png"))
     except:
         st.error("⚠️ Chart not found. Please ensure 'daily_revenue_DATA1.png' is in the same directory.")
 
@@ -216,7 +219,7 @@ with tab3:
     # Task 6: Chart
     st.subheader("📈 Task 6: Daily Revenue Over Time")
     try:
-        st.image("daily_revenue_DATA3.png")
+        st.image(os.path.join(BASE_DIR, "daily_revenue_DATA3.png"))
     except:
         st.error("⚠️ Chart not found. Please ensure 'daily_revenue_DATA1.png' is in the same directory.")
 
