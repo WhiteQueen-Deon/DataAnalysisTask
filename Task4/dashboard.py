@@ -78,7 +78,7 @@ with tab1:
     # Task 6: Chart
     st.subheader("📈 Task 6: Daily Revenue Over Time")
     try:
-        st.image("daily_revenue_DATA1.png", use_column_width=True)
+        st.image("daily_revenue_DATA1.png")
     except:
         st.error("⚠️ Chart not found. Please ensure 'daily_revenue_DATA1.png' is in the same directory.")
 
@@ -147,7 +147,7 @@ with tab2:
     # Task 6: Chart
     st.subheader("📈 Task 6: Daily Revenue Over Time")
     try:
-        st.image("daily_revenue_DATA2.png", use_column_width=True)
+        st.image("daily_revenue_DATA2.png")
     except:
         st.error("⚠️ Chart not found. Please ensure 'daily_revenue_DATA1.png' is in the same directory.")
 
@@ -217,7 +217,7 @@ with tab3:
     # Task 6: Chart
     st.subheader("📈 Task 6: Daily Revenue Over Time")
     try:
-        st.image("daily_revenue_DATA3.png", use_column_width=True)
+        st.image("daily_revenue_DATA3.png")
     except:
         st.error("⚠️ Chart not found. Please ensure 'daily_revenue_DATA1.png' is in the same directory.")
 
