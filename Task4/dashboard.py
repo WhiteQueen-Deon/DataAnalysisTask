@@ -7,7 +7,6 @@ st.set_page_config(
 )
 
 st.title("📊 Data Analysis Dashboard")
-st.markdown("**Course:** Contemporary Data Processing Systems | **Student:** Zhou | **Date:** Dec 3, 2025")
 st.markdown("---")
 
 tab1, tab2, tab3 = st.tabs(["📁 DATA1", "📁 DATA2", "📁 DATA3"])
@@ -222,6 +221,5 @@ with tab3:
         st.error("⚠️ Chart not found. Please ensure 'daily_revenue_DATA1.png' is in the same directory.")
 
 
-# 页脚
 st.markdown("---")
 st.caption("📊 Data Analysis Dashboard | Generated for Contemporary Data Processing Systems Course")
