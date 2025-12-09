@@ -45,10 +45,10 @@ def calculate_statistics(data, mine_columns):
     
     total_output = data[mine_columns].sum(axis=1)
     stats_dict['Total'] = {
-        'Mean': total_output.mean(),
-        'Std Dev': total_output.std(),
-        'Median': total_output.median(),
-        'IQR': total_output.quantile(0.75) - total_output.quantile(0.25)
+        'Mean': np.mean([stats_dict[m]['Mean'] for m in mine_columns]),
+        'Std Dev': np.mean([stats_dict[m]['Std Dev'] for m in mine_columns]),
+        'Median': np.mean([stats_dict[m]['Median'] for m in mine_columns]),
+        'IQR': np.mean([stats_dict[m]['IQR'] for m in mine_columns])
     }
     
     stats_df = pd.DataFrame(stats_dict).T
@@ -129,278 +129,316 @@ def calculate_trendline(x, y, degree):
 
 # ==================== Create Chart ====================
 def create_chart(data, mine_columns, chart_type, anomaly_method, anomaly_results, trendline_degree):
+    """Create interactive chart with anomalies and trendline"""
+    
     fig = go.Figure()
     
+    # Define colors for mines
+    colors = ['#1f77b4', '#ff7f0e', '#2ca02c']  # Blue, Orange, Green
+    
     if chart_type == "Line":
-        for mine in mine_columns:
+        # First pass: Add all normal lines
+        for i, mine in enumerate(mine_columns):
             fig.add_trace(go.Scatter(
                 x=data['Date'],
                 y=data[mine],
                 mode='lines',
                 name=mine,
-                line=dict(width=2)
+                line=dict(width=2, color=colors[i % len(colors)]),
+                legendgroup=mine
             ))
-            
+        
+        # Second pass: Add all anomalies (single legend entry)
+        all_anomaly_dates = []
+        all_anomaly_values = []
+        all_anomaly_mines = []
+        
+        for mine in mine_columns:
             anomalies = anomaly_results[mine][anomaly_method]
             if anomalies.sum() > 0:
-                fig.add_trace(go.Scatter(
-                    x=data.loc[anomalies, 'Date'],
-                    y=data.loc[anomalies, mine],
-                    mode='markers',
-                    name=f'{mine} (Anomalies)',
-                    marker=dict(size=10, color='red', symbol='x', line=dict(width=2))
-                ))
-            
-            if trendline_degree > 0:
+                all_anomaly_dates.extend(data.loc[anomalies, 'Date'].tolist())
+                all_anomaly_values.extend(data.loc[anomalies, mine].tolist())
+                all_anomaly_mines.extend([mine] * anomalies.sum())
+        
+        # Add single anomaly trace
+        if len(all_anomaly_dates) > 0:
+            fig.add_trace(go.Scatter(
+                x=all_anomaly_dates,
+                y=all_anomaly_values,
+                mode='markers',
+                name='Anomalies',
+                marker=dict(size=10, color='red', symbol='x', line=dict(width=2)),
+                hovertemplate='<b>%{text}</b><br>Date: %{x}<br>Value: %{y:.2f}<extra></extra>',
+                text=all_anomaly_mines,
+                showlegend=True
+            ))
+        
+        # Add trendlines
+        if trendline_degree > 0:
+            for i, mine in enumerate(mine_columns):
                 y_trend = calculate_trendline(data['Date'], data[mine], trendline_degree)
                 fig.add_trace(go.Scatter(
                     x=data['Date'],
                     y=y_trend,
                     mode='lines',
-                    name=f'{mine} (Trend)',
-                    line=dict(dash='dash', width=2),
-                    opacity=0.6
+                    name=f'{mine} Trend',
+                    line=dict(dash='dash', width=2, color=colors[i % len(colors)]),
+                    opacity=0.6,
+                    legendgroup=mine,
+                    showlegend=False 
                 ))
     
     elif chart_type == "Bar":
-        for mine in mine_columns:
-            normal_mask = ~anomaly_results[mine][anomaly_method]
+        # Bar chart: all bars grouped, markers manually offset
+        
+        # Add all bars with offset groups
+        for i, mine in enumerate(mine_columns):
             fig.add_trace(go.Bar(
-                x=data.loc[normal_mask, 'Date'],
-                y=data.loc[normal_mask, mine],
+                x=data['Date'],
+                y=data[mine],
                 name=mine,
-                marker=dict(opacity=0.7)
+                marker=dict(color=colors[i % len(colors)], opacity=0.7),
+                legendgroup=mine
             ))
+        
+        # Calculate bar positions for markers
+        num_mines = len(mine_columns)
+        
+        # Plotly bar width calculation (approximation)
+        dates = data['Date'].unique()
+        if len(dates) > 1:
+            # Calculate average time gap between dates
+            time_diffs = np.diff(dates.astype('int64'))
+            avg_gap_days = np.mean(time_diffs) / (10**9 * 86400)  # Convert nanoseconds to days
             
+            # Bar width as fraction of gap
+            total_bar_width = avg_gap_days * 0.8  # 80% of gap
+            single_bar_width = total_bar_width / num_mines
+            
+            # Calculate offsets for each mine
+            offsets = []
+            for i in range(num_mines):
+                offset = (i - (num_mines - 1) / 2) * single_bar_width
+                offsets.append(pd.Timedelta(days=offset))
+        else:
+            offsets = [pd.Timedelta(days=0)] * num_mines
+        
+        # Add anomaly markers with offsets
+        anomaly_shown = False
+        
+        for idx, mine in enumerate(mine_columns):
             anomalies = anomaly_results[mine][anomaly_method]
             if anomalies.sum() > 0:
-                fig.add_trace(go.Bar(
-                    x=data.loc[anomalies, 'Date'],
-                    y=data.loc[anomalies, mine],
-                    name=f'{mine} (Anomalies)',
-                    marker=dict(color='red', opacity=0.8)
+                anomaly_dates = data.loc[anomalies, 'Date']
+                anomaly_values = data.loc[anomalies, mine]
+                
+                # Apply horizontal offset
+                anomaly_dates_offset = anomaly_dates + offsets[idx]
+                
+                # Position markers above bars
+                y_positions = anomaly_values
+                
+                fig.add_trace(go.Scatter(
+                    x=anomaly_dates_offset,
+                    y=y_positions,
+                    mode='markers',
+                    name='Anomalies' if not anomaly_shown else '',
+                    marker=dict(
+                        size=15,
+                        color='red',
+                        symbol='x',
+                        line=dict(width=3, color='darkred')
+                    ),
+                    showlegend=(not anomaly_shown),
+                    customdata=anomaly_values,
+                    hovertemplate=f'<b>{mine} - Anomaly</b><br>Date: %{{x|%Y-%m-%d}}<br>Value: %{{customdata:.2f}}<extra></extra>',
+                    legendgroup='anomalies'
                 ))
-            
-            if trendline_degree > 0:
+                
+                anomaly_shown = True
+        
+        # Set barmode to group
+        fig.update_layout(
+            barmode='group',
+            bargap=0.15,
+            bargroupgap=0.1
+        )
+        
+        # Add trendlines
+        if trendline_degree > 0:
+            for i, mine in enumerate(mine_columns):
                 y_trend = calculate_trendline(data['Date'], data[mine], trendline_degree)
                 fig.add_trace(go.Scatter(
                     x=data['Date'],
                     y=y_trend,
                     mode='lines',
-                    name=f'{mine} (Trend)',
-                    line=dict(dash='dash', width=3, color='black')
+                    name=f'{mine} Trend',
+                    line=dict(dash='dash', width=3, color=colors[i % len(colors)]),
+                    showlegend=False
                 ))
-    
+                
     elif chart_type == "Stacked":
-        for mine in mine_columns:
+        for i, mine in enumerate(mine_columns):
             fig.add_trace(go.Bar(
                 x=data['Date'],
                 y=data[mine],
-                name=mine
+                name=mine,
+                marker=dict(color=colors[i % len(colors)])
             ))
         
         fig.update_layout(barmode='stack')
     
+    # Update layout
     fig.update_layout(
-        title=f"Mining Operations - {chart_type} Chart",
-        xaxis_title="Date",
+        title=f"Mining Operations - {chart_type} Chart ({anomaly_method} Detection)",
+        xaxis_title="",
         yaxis_title="Daily Output",
-        hovermode='x unified',
+        hovermode='closest',
         height=600,
-        showlegend=True
+        showlegend=True,
+        legend=dict(
+            orientation="v",
+            yanchor="top",
+            y=1,
+            xanchor="left",
+            x=1.02
+        ),
+        margin=dict(t=20, b=40, l=50, r=10) 
     )
     
     return fig
 
-# ==================== Extract Anomaly Details ====================
-def extract_anomaly_details(data, mine_columns, anomaly_results, anomaly_method):
-    """Extract detailed information about each anomaly"""
-    anomalies_list = []
-    
-    for mine in mine_columns:
-        anomalies_mask = anomaly_results[mine][anomaly_method]
-        anomaly_indices = data[anomalies_mask].index
-        
-        for idx in anomaly_indices:
-            date = data.loc[idx, 'Date']
-            value = data.loc[idx, mine]
-            baseline = data[mine].mean()
-            
-            # Determine type and magnitude
-            if value > baseline:
-                anomaly_type = "Spike"
-                magnitude = f"+{((value - baseline) / baseline * 100):.1f}%"
-            else:
-                anomaly_type = "Drop"
-                magnitude = f"{((value - baseline) / baseline * 100):.1f}%"
-            
-            anomalies_list.append({
-                'date': date,
-                'mine': mine,
-                'type': anomaly_type,
-                'value': value,
-                'baseline': baseline,
-                'magnitude': magnitude,
-                'method': anomaly_method
-            })
-    
-    # Sort by date
-    anomalies_list.sort(key=lambda x: x['date'])
-    
-    return anomalies_list
-
-# ==================== Generate PDF Report ====================
-def generate_pdf_report(data, mine_columns, stats_df, anomaly_results, params, chart_type, anomaly_method, trendline_degree, fig):
-    """Generate comprehensive PDF report"""
+def generate_pdf_report(data, mine_columns, stats_df, anomaly_results, params, trendline_degree):
+    """Generate simplified PDF report with statistics, anomaly detection, and charts"""
     
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=15)
     
-    # ========== Cover Page ==========
+    # ========== Page 1: Cover + Statistics ==========
     pdf.add_page()
-    pdf.set_font("Arial", "B", 24)
-    pdf.ln(60)
-    pdf.cell(0, 10, "Weyland-Yutani Corporation", align='C', ln=True)
+    
+    # Title
     pdf.set_font("Arial", "B", 20)
-    pdf.cell(0, 10, "Mining Operations Analysis Report", align='C', ln=True)
-    pdf.ln(20)
+    pdf.cell(0, 15, "Mining Operations Report", align='C', ln=True)
     pdf.set_font("Arial", "", 12)
-    pdf.cell(0, 10, f"Period: {data['Date'].min().date()} to {data['Date'].max().date()}", align='C', ln=True)
-    pdf.cell(0, 10, f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}", align='C', ln=True)
+    pdf.cell(0, 8, f"Period: {data['Date'].min().date()} to {data['Date'].max().date()}", align='C', ln=True)
+    pdf.cell(0, 8, f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}", align='C', ln=True)
+    pdf.ln(10)
     
-    # ========== Statistical Summary ==========
-    pdf.add_page()
-    pdf.set_font("Arial", "B", 16)
+    # Section 1: Statistics
+    pdf.set_font("Arial", "B", 14)
     pdf.cell(0, 10, "1. Statistical Summary", ln=True)
-    pdf.ln(5)
+    pdf.ln(3)
     
-    pdf.set_font("Arial", "", 12)
+    # Table header
+    pdf.set_font("Arial", "B", 10)
+    pdf.cell(45, 8, "Mine", border=1, align='C')
+    pdf.cell(35, 8, "Mean", border=1, align='C')
+    pdf.cell(35, 8, "Std Dev", border=1, align='C')
+    pdf.cell(35, 8, "Median", border=1, align='C')
+    pdf.cell(35, 8, "IQR", border=1, align='C')
+    pdf.ln()
+    
+    # Table data
+    pdf.set_font("Arial", "", 10)
     for entity in list(mine_columns) + ['Total']:
-        pdf.set_font("Arial", "B", 12)
-        pdf.cell(0, 8, entity, ln=True)
-        
-        pdf.set_font("Arial", "", 10)
-        pdf.cell(50, 6, "Mean Daily Output:", border=1)
-        pdf.cell(40, 6, f"{stats_df.loc[entity, 'Mean']:.2f}", border=1)
+        pdf.cell(45, 8, entity, border=1)
+        pdf.cell(35, 8, f"{stats_df.loc[entity, 'Mean']:.2f}", border=1, align='C')
+        pdf.cell(35, 8, f"{stats_df.loc[entity, 'Std Dev']:.2f}", border=1, align='C')
+        pdf.cell(35, 8, f"{stats_df.loc[entity, 'Median']:.2f}", border=1, align='C')
+        pdf.cell(35, 8, f"{stats_df.loc[entity, 'IQR']:.2f}", border=1, align='C')
         pdf.ln()
-        
-        pdf.cell(50, 6, "Standard Deviation:", border=1)
-        pdf.cell(40, 6, f"{stats_df.loc[entity, 'Std Dev']:.2f}", border=1)
-        pdf.ln()
-        
-        pdf.cell(50, 6, "Median:", border=1)
-        pdf.cell(40, 6, f"{stats_df.loc[entity, 'Median']:.2f}", border=1)
-        pdf.ln()
-        
-        pdf.cell(50, 6, "IQR:", border=1)
-        pdf.cell(40, 6, f"{stats_df.loc[entity, 'IQR']:.2f}", border=1)
-        pdf.ln(10)
     
-    # ========== Anomaly Detection Summary ==========
-    pdf.add_page()
-    pdf.set_font("Arial", "B", 16)
-    pdf.cell(0, 10, "2. Anomaly Detection Summary", ln=True)
-    pdf.ln(5)
+    pdf.ln(10)
     
-    # Detection parameters
-    pdf.set_font("Arial", "B", 12)
-    pdf.cell(0, 8, "Detection Parameters:", ln=True)
+    # ========== Section 2: Anomaly Detection ==========
+    pdf.set_font("Arial", "B", 14)
+    pdf.cell(0, 10, "2. Anomaly Detection", ln=True)
+    pdf.ln(3)
+    
+    # Parameters
+    pdf.set_font("Arial", "B", 11)
+    pdf.cell(0, 7, "Detection Parameters:", ln=True)
     pdf.set_font("Arial", "", 10)
     pdf.cell(0, 6, f"  IQR Multiplier: {params['iqr_multiplier']}", ln=True)
     pdf.cell(0, 6, f"  Z-score Threshold: {params['zscore_threshold']}", ln=True)
     pdf.cell(0, 6, f"  Moving Average Window: {params['ma_window']} days", ln=True)
     pdf.cell(0, 6, f"  MA Distance Threshold: {params['ma_threshold']}%", ln=True)
-    pdf.cell(0, 6, f"  Grubbs' Test Alpha: {params['grubbs_alpha']}", ln=True)
-    pdf.ln(10)
+    pdf.cell(0, 6, f"  Grubbs' Alpha: {params['grubbs_alpha']}", ln=True)
+    pdf.ln(5)
     
-    # Anomaly counts
-    pdf.set_font("Arial", "B", 12)
-    pdf.cell(0, 8, "Anomalies Detected:", ln=True)
+    # Anomaly counts table
+    pdf.set_font("Arial", "B", 11)
+    pdf.cell(0, 7, "Anomalies Detected:", ln=True)
     pdf.ln(2)
     
-    pdf.set_font("Arial", "B", 10)
-    pdf.cell(40, 6, "Mine", border=1)
-    pdf.cell(25, 6, "IQR", border=1, align='C')
-    pdf.cell(25, 6, "Z-score", border=1, align='C')
-    pdf.cell(30, 6, "Moving Avg", border=1, align='C')
-    pdf.cell(25, 6, "Grubbs", border=1, align='C')
+    # Table header
+    pdf.set_font("Arial", "B", 9)
+    pdf.cell(45, 7, "Mine", border=1, align='C')
+    pdf.cell(30, 7, "IQR", border=1, align='C')
+    pdf.cell(30, 7, "Z-score", border=1, align='C')
+    pdf.cell(35, 7, "Moving Avg", border=1, align='C')
+    pdf.cell(30, 7, "Grubbs", border=1, align='C')
     pdf.ln()
     
-    pdf.set_font("Arial", "", 10)
+    # Table data
+    pdf.set_font("Arial", "", 9)
     for mine in mine_columns:
-        pdf.cell(40, 6, mine, border=1)
-        pdf.cell(25, 6, str(anomaly_results[mine]['IQR'].sum()), border=1, align='C')
-        pdf.cell(25, 6, str(anomaly_results[mine]['Z-score'].sum()), border=1, align='C')
-        pdf.cell(30, 6, str(anomaly_results[mine]['Moving Avg'].sum()), border=1, align='C')
-        pdf.cell(25, 6, str(anomaly_results[mine]['Grubbs'].sum()), border=1, align='C')
+        pdf.cell(45, 7, mine, border=1)
+        pdf.cell(30, 7, str(anomaly_results[mine]['IQR'].sum()), border=1, align='C')
+        pdf.cell(30, 7, str(anomaly_results[mine]['Z-score'].sum()), border=1, align='C')
+        pdf.cell(35, 7, str(anomaly_results[mine]['Moving Avg'].sum()), border=1, align='C')
+        pdf.cell(30, 7, str(anomaly_results[mine]['Grubbs'].sum()), border=1, align='C')
         pdf.ln()
     
-    # ========== Chart ==========
-    pdf.add_page()
-    pdf.set_font("Arial", "B", 16)
-    pdf.cell(0, 10, "3. Data Visualization", ln=True)
-    pdf.ln(5)
+# ========== Section 3: Charts ==========
+    # For each chart type, show all 4 detection methods vertically (1x4)
     
-    # Save chart as image
-    chart_filename = "temp_chart.png"
-    try:
-        pio.write_image(fig, chart_filename, width=800, height=600)
-        pdf.image(chart_filename, x=10, y=40, w=190)
-        os.remove(chart_filename)  # Clean up
-    except Exception as e:
-        pdf.set_font("Arial", "", 10)
-        pdf.cell(0, 8, f"[Chart could not be embedded: {str(e)}]", ln=True)
+    chart_types = ['Line', 'Bar', 'Stacked']
+    detection_methods = ['IQR', 'Z-score', 'Moving Avg', 'Grubbs']
     
-    # ========== Detailed Anomaly Analysis ==========
-    pdf.add_page()
-    pdf.set_font("Arial", "B", 16)
-    pdf.cell(0, 10, "4. Detailed Anomaly Analysis", ln=True)
-    pdf.ln(5)
-    
-    # Extract anomalies
-    anomalies_list = extract_anomaly_details(data, mine_columns, anomaly_results, anomaly_method)
-    
-    if len(anomalies_list) == 0:
-        pdf.set_font("Arial", "", 12)
-        pdf.cell(0, 8, "No anomalies detected with current parameters.", ln=True)
-    else:
-        for idx, anomaly in enumerate(anomalies_list, 1):
-            pdf.set_font("Arial", "B", 14)
-            pdf.cell(0, 10, f"Anomaly #{idx}: {anomaly['type']}", ln=True)
-            pdf.ln(2)
+    for chart_type in chart_types:
+        pdf.add_page()
+        
+        # Page title
+        pdf.set_font("Arial", "B", 14)
+        if trendline_degree == 0:
+            pdf.cell(0, 10, f"3. {chart_type} Charts (No Trendline)", ln=True)
+        else:
+            pdf.cell(0, 10, f"3. {chart_type} Charts (Polynomial Degree {trendline_degree})", ln=True)
+        pdf.ln(5)
+        
+        # Generate 4 charts vertically
+        for idx, method in enumerate(detection_methods):
+            # Create chart
+            fig = create_chart(data, mine_columns, chart_type, method, anomaly_results, trendline_degree)
             
-            pdf.set_font("Arial", "", 10)
-            pdf.cell(50, 6, "Date:", border=1)
-            pdf.cell(60, 6, str(anomaly['date'].date()), border=1)
-            pdf.ln()
+            # Remove chart title
+            fig.update_layout(title="")  
             
-            pdf.cell(50, 6, "Mine:", border=1)
-            pdf.cell(60, 6, anomaly['mine'], border=1)
-            pdf.ln()
+            # Save as image
+            chart_filename = f"temp_{chart_type}_{method}.png"
             
-            pdf.cell(50, 6, "Type:", border=1)
-            pdf.cell(60, 6, anomaly['type'], border=1)
-            pdf.ln()
-            
-            pdf.cell(50, 6, "Actual Value:", border=1)
-            pdf.cell(60, 6, f"{anomaly['value']:.2f}", border=1)
-            pdf.ln()
-            
-            pdf.cell(50, 6, "Baseline (Mean):", border=1)
-            pdf.cell(60, 6, f"{anomaly['baseline']:.2f}", border=1)
-            pdf.ln()
-            
-            pdf.cell(50, 6, "Magnitude:", border=1)
-            pdf.cell(60, 6, anomaly['magnitude'], border=1)
-            pdf.ln()
-            
-            pdf.cell(50, 6, "Detection Method:", border=1)
-            pdf.cell(60, 6, anomaly['method'], border=1)
-            pdf.ln(10)
-            
-            # Page break if needed
-            if idx < len(anomalies_list) and pdf.get_y() > 250:
-                pdf.add_page()
+            try:
+                pio.write_image(fig, chart_filename, width=1000, height=320)
+                
+                # Method label (closer to chart)
+                pdf.set_font("Arial", "B", 10)
+                pdf.cell(0, 4, method, ln=True, align='C')  
+                
+                # Add chart image (full width)
+                pdf.image(chart_filename, x=10, y=pdf.get_y(), w=190)
+                
+                # Clean up
+                os.remove(chart_filename)
+                
+                # Space before next chart
+                pdf.ln(63)  
+                
+            except Exception as e:
+                pdf.set_font("Arial", "", 9)
+                pdf.cell(0, 5, f"[Chart error: {str(e)}]", ln=True)
+                pdf.ln(5)
     
     # Save PDF
     pdf_filename = f"Mining_Report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
@@ -499,10 +537,10 @@ st.plotly_chart(fig, use_container_width=True)
 
 st.markdown("---")
 
-# ==================== PDF Report Generation ====================
+ #==================== PDF Report Generation ====================
 st.subheader("📄 Generate PDF Report")
 
-st.write("Generate a comprehensive PDF report including all statistics, charts, and detailed anomaly analysis.")
+st.write("Generate a PDF report with statistics, anomaly detection results, and charts.")
 
 if st.button("📥 Generate PDF Report", type="primary"):
     with st.spinner("Generating PDF report..."):
@@ -512,11 +550,8 @@ if st.button("📥 Generate PDF Report", type="primary"):
                 mine_columns, 
                 stats_df, 
                 anomaly_results, 
-                params, 
-                chart_type, 
-                anomaly_method, 
-                trendline_degree, 
-                fig
+                params,
+                trendline_degree
             )
             
             # Read PDF file
@@ -537,4 +572,4 @@ if st.button("📥 Generate PDF Report", type="primary"):
             
         except Exception as e:
             st.error(f"❌ Error generating PDF: {str(e)}")
-            st.write("Please make sure kaleido is installed: `pip install kaleido`")
+            st.write("Error details:", str(e))
