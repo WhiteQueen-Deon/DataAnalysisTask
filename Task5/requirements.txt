@@ -1,7 +1,7 @@
-streamlit==1.29.0
-pandas==2.2.2
-numpy==1.26.4
-plotly==5.18.0
-fpdf2==2.7.6
-scikit-learn==1.5.2
-kaleido==0.2.1
+streamlit>=1.29.0
+pandas>=2.2.0
+numpy>=1.26.0
+plotly>=5.24.0
+fpdf2>=2.7.0
+scikit-learn>=1.5.0
+kaleido>=0.2.1
