@@ -8,6 +8,8 @@ from fpdf import FPDF
 import plotly.io as pio
 from datetime import datetime
 import os
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 
 # ==================== Page Config ====================
 st.set_page_config(page_title="Mining Dashboard", page_icon="⛏️", layout="wide")
@@ -330,6 +332,85 @@ def create_chart(data, mine_columns, chart_type, anomaly_method, anomaly_results
     
     return fig
 
+def save_matplotlib_chart(data, mine_columns, chart_type, anomaly_method, anomaly_results, trendline_degree, chart_filename, figsize=(10,3.2)):
+    """
+    Create a static matplotlib PNG matching the plotly interactive chart logic:
+    - data: dataframe with Date + mine_columns
+    - chart_type: "Line" | "Bar" | "Stacked"
+    - anomaly_method: one of 'IQR','Z-score','Moving Avg','Grubbs'
+    - anomaly_results: dict returned by detect_all_anomalies
+    - trendline_degree: 0..n
+    - chart_filename: output path (.png)
+    """
+    plt.close('all')
+    fig, ax = plt.subplots(figsize=figsize)
+    colors = ['#1f77b4', '#ff7f0e', '#2ca02c']
+
+    dates = data['Date']
+    x = mdates.date2num(dates)
+
+    if chart_type == "Line":
+        for i, mine in enumerate(mine_columns):
+            ax.plot(dates, data[mine], label=mine, linewidth=1.6, color=colors[i % len(colors)])
+        # anomalies
+        all_dates = []
+        all_vals = []
+        all_labels = []
+        for i, mine in enumerate(mine_columns):
+            anomalies = anomaly_results[mine][anomaly_method]
+            if anomalies.sum() > 0:
+                ad = data.loc[anomalies, 'Date']
+                av = data.loc[anomalies, mine]
+                all_dates.extend(ad.tolist())
+                all_vals.extend(av.tolist())
+                all_labels.extend([mine]*len(ad))
+        if len(all_dates) > 0:
+            ax.scatter(all_dates, all_vals, marker='x', s=60, c='red', label='Anomalies', zorder=5)
+        # trendlines
+        if trendline_degree > 0:
+            for i, mine in enumerate(mine_columns):
+                y_trend = calculate_trendline(data['Date'], data[mine], trendline_degree)
+                ax.plot(dates, y_trend, linestyle='--', linewidth=1.2, color=colors[i % len(colors)], alpha=0.7)
+
+    elif chart_type == "Bar":
+        # grouped bars
+        num = len(mine_columns)
+        width = 0.8 / max(1, num)
+        offsets = np.linspace(-0.4 + width/2, 0.4 - width/2, num)
+        for idx, mine in enumerate(mine_columns):
+            ax.bar(x + offsets[idx], data[mine], width=width, label=mine, alpha=0.75, color=colors[idx % len(colors)])
+        # anomalies - mark with x above bars
+        for idx, mine in enumerate(mine_columns):
+            anomalies = anomaly_results[mine][anomaly_method]
+            if anomalies.sum() > 0:
+                ad = mdates.date2num(data.loc[anomalies, 'Date'])
+                av = data.loc[anomalies, mine].values
+                ax.scatter(ad + offsets[idx], av, marker='x', s=100, c='red', zorder=5)
+        # trendlines (as line over bar groups)
+        if trendline_degree > 0:
+            for i, mine in enumerate(mine_columns):
+                y_trend = calculate_trendline(data['Date'], data[mine], trendline_degree)
+                ax.plot(dates, y_trend, linestyle='--', linewidth=1.4, color=colors[i % len(colors)])
+
+    elif chart_type == "Stacked":
+        bottoms = np.zeros(len(data))
+        for i, mine in enumerate(mine_columns):
+            ax.bar(dates, data[mine], bottom=bottoms, label=mine, color=colors[i % len(colors)])
+            bottoms += data[mine].fillna(0).values
+
+    # formatting
+    ax.set_ylabel("Daily Output")
+    ax.set_title(f"Mining Operations - {chart_type} Chart ({anomaly_method} Detection)")
+    ax.legend(loc='upper left', bbox_to_anchor=(1.02, 1.0))
+    ax.xaxis.set_major_locator(mdates.AutoDateLocator())
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
+    fig.autofmt_xdate(rotation=25)
+    fig.tight_layout()
+
+    # save file
+    fig.savefig(chart_filename, dpi=150)
+    plt.close(fig)
+
 def generate_pdf_report(data, mine_columns, stats_df, anomaly_results, params, trendline_degree):
     """Generate simplified PDF report with statistics, anomaly detection, and charts"""
     
@@ -442,10 +523,12 @@ def generate_pdf_report(data, mine_columns, stats_df, anomaly_results, params, t
             chart_filename = f"temp_{chart_type}_{method}.png"
             
             try:
-                img_bytes = fig.to_image(format="png", width=1000, height=320)
-                with open(chart_filename, "wb") as f:
-                    f.write(img_bytes)
+                # img_bytes = fig.to_image(format="png", width=1000, height=320)
+                # with open(chart_filename, "wb") as f:
+                #     f.write(img_bytes)
                 
+                save_matplotlib_chart(data, mine_columns, chart_type, method, anomaly_results, trendline_degree, chart_filename, figsize=(10,3.2))
+
                 # Method label (closer to chart)
                 pdf.set_font("Arial", "B", 10)
                 pdf.cell(0, 4, method, ln=True, align='C')  
