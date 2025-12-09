@@ -442,7 +442,9 @@ def generate_pdf_report(data, mine_columns, stats_df, anomaly_results, params, t
             chart_filename = f"temp_{chart_type}_{method}.png"
             
             try:
-                pio.write_image(fig, chart_filename, width=1000, height=320)
+                img_bytes = fig.to_image(format="png", width=1000, height=320)
+                with open(chart_filename, "wb") as f:
+                    f.write(img_bytes)
                 
                 # Method label (closer to chart)
                 pdf.set_font("Arial", "B", 10)
