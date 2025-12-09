@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-from scipy import stats as scipy_stats
 from sklearn.preprocessing import PolynomialFeatures
 from sklearn.linear_model import LinearRegression
 from fpdf import FPDF
@@ -75,6 +74,29 @@ def detect_anomalies_moving_avg(series, window=7, threshold=20.0):
     percent_diff = np.abs((series - ma) / ma * 100)
     return percent_diff > threshold
 
+def t_ppf(p, df):
+    a = 1.0 / (df - 0.5)
+    b = 48.0 / (a * a)
+    c = (((20700.0 * a) / b - 98.0) * a) - 16.0
+    d = (((94.5 / (b + c)) * a) - 3.0) * a + 1.0
+    x = d * np.tan(np.pi * (p - 0.5))
+
+    for _ in range(2):
+        x = x - (cdf_t(x, df) - p) / pdf_t(x, df)
+
+    return x
+
+def pdf_t(x, df):
+    return (1 + x**2/df)**(-(df+1)/2)
+
+def cdf_t(x, df):
+    from math import atan, pi
+    if x == 0:
+        return 0.5
+    t = atan(x / np.sqrt(df))
+    return 0.5 + t / pi
+
+
 def detect_anomalies_grubbs(series, alpha=0.05):
     anomalies = pd.Series([False] * len(series), index=series.index)
     data_copy = series.copy()
@@ -91,7 +113,7 @@ def detect_anomalies_grubbs(series, alpha=0.05):
         G = abs_diff.max() / std
         
         n = len(data_copy)
-        t_dist = scipy_stats.t.ppf(1 - alpha / (2 * n), n - 2)
+        t_dist = t_ppf(1 - alpha / (2 * n), n - 2)
         G_critical = ((n - 1) / np.sqrt(n)) * np.sqrt(t_dist**2 / (n - 2 + t_dist**2))
         
         if G > G_critical:
